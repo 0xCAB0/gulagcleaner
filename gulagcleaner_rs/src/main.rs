@@ -7,10 +7,7 @@ fn main() {
     let substring = "wuolah";
     let replacement = "clean";
 
-    for entry in WalkDir::new(&root_folder)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(root_folder).into_iter().filter_map(|e| e.ok()) {
         if entry.file_type().is_file() {
             let file_path = entry.path();
             if let Some(file_name) = file_path.file_name() {
