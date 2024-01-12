@@ -16,3 +16,4 @@ name = "gulagcleaner_rs"
 [dependencies]
 flate2 = "1.0.27"
 lopdf = "0.31.0"
+walkdir = "2.4.0"
