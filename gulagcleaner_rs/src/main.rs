@@ -17,14 +17,17 @@ fn main() {
                 if file_name.to_string_lossy().contains(substring)
                     && file_path.extension().map_or(false, |ext| ext == "pdf")
                 {
-                    println!("Cleaning {}", file_path.to_str().unwrap());
+                    println!("Cleaning {}", file_name.to_str().unwrap());
                     let data = fs::read(file_path).unwrap();
                     let (clean_pdf, _) = clean_pdf(data, false);
                     let output_path = file_path.with_file_name(
                         file_name.to_string_lossy().replace(substring, replacement),
                     );
                     fs::create_dir_all(output_path.parent().unwrap()).unwrap(); // Create the output directory if it doesn't exist
-                    println!("Clean version output to {}", &output_path.to_str().unwrap());
+                    println!(
+                        "\tClean version output to -> {}",
+                        &output_path.to_str().unwrap()
+                    );
                     fs::write(output_path, clean_pdf).unwrap();
                 }
             }
