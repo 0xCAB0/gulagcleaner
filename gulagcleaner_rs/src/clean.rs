@@ -1,8 +1,14 @@
 use crate::models::{self, method::Method};
-use models::{method, page_type};
+use models::page_type;
 
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use std::{collections::HashSet, error::Error};
+
+/// Trait implemented by the different PDF methods
+pub trait Cleaner {
+    fn clean(&mut self) -> (Vec<u32>, u8);
+}
+
 /// Cleans a PDF document by modifying its pages and removing unnecessary content.
 ///
 /// # Arguments
@@ -17,199 +23,13 @@ use std::{collections::HashSet, error::Error};
 pub fn clean_pdf(data: Vec<u8>, force_naive: bool) -> (Vec<u8>, u8) {
     //Load the PDF into a Document
     let mut doc = Document::load_mem(&data).unwrap();
-    let pages = doc.get_pages();
 
     //We first need to determine what method we're using, either "Wuolah", "StuDocu" or "Wuolah naive".
     // We keep it like this to allow for future methods if needed.
 
     //Each method should mark pages for deletion in to_delete and modify the contents of the pages.
 
-    let (to_delete, method_code) = match match_method(&doc, force_naive) {
-        method::Method::Wuolah(content_list, to_delete) => {
-            let new_contents: Vec<Vec<(u32, u16)>> = content_list
-                .iter()
-                .enumerate()
-                .map(|(i, x)| {
-                    let pares = if x == content_list.last().unwrap() {
-                        find_iobj_pairs(x, &content_list[i - 1])
-                    } else {
-                        let check_if_00 = find_iobj_pairs(x, &content_list[i + 1]);
-                        if check_if_00 != (0, 0) {
-                            check_if_00
-                        } else {
-                            find_iobj_pairs(x, &content_list[i - 1])
-                        }
-                    };
-
-                    x[(pares.0) - 2..=(pares.1) + 3].to_vec()
-                })
-                .collect();
-
-            let vector: Vec<(&u32, &(u32, u16))> = pages
-                .iter()
-                .filter(|x| doc.get_page_contents(*x.1).len() > 1)
-                .collect();
-            for (i, page) in vector.iter().enumerate() {
-                let mutable_page = doc.get_object_mut(*page.1).unwrap().as_dict_mut().unwrap();
-                let contents_objects: Vec<Object> = new_contents[i]
-                    .iter()
-                    .map(|x| Object::Reference(*x))
-                    .collect();
-
-                mutable_page.set(*b"Contents", lopdf::Object::Array(contents_objects));
-
-                mutable_page.set("Annots", Object::Array(vec![]));
-                let mediabox = mutable_page.get(b"MediaBox").unwrap().as_array().unwrap();
-
-                let height_offset = match mediabox[1].as_f32() {
-                    Ok(h) => h,
-                    _ => mediabox[1].as_i64().unwrap() as f32,
-                };
-                let width_offset = match mediabox[0].as_f32() {
-                    Ok(h) => h,
-                    _ => mediabox[0].as_i64().unwrap() as f32,
-                };
-
-                let height = match mediabox[3].as_f32() {
-                    Ok(h) => h,
-                    _ => mediabox[3].as_i64().unwrap() as f32,
-                };
-                let width = match mediabox[2].as_f32() {
-                    Ok(h) => h,
-                    _ => mediabox[2].as_i64().unwrap() as f32,
-                };
-
-                for _box in ["MediaBox", "ArtBox", "TrimBox", "CropBox", "BleedBox"] {
-                    mutable_page.set(
-                        _box,
-                        Object::Array(vec![
-                            Object::Real(0.0),
-                            Object::Real(0.0),
-                            Object::Real(width - width_offset),
-                            Object::Real(height - height_offset),
-                        ]),
-                    );
-                }
-            }
-
-            (to_delete, 0)
-        }
-
-        method::Method::StuDocu(content_list) => {
-            println!("Using StuDocu method");
-            let new_contents: Vec<Vec<(u32, u16)>> =
-                content_list.iter().skip(1).map(|x| vec![x[1]]).collect();
-
-            let vector: Vec<(&u32, &(u32, u16))> = pages.iter().filter(|x| *x.0 != 1).collect();
-            for (i, page) in vector.iter().enumerate() {
-                let mutable_page = doc.get_object_mut(*page.1).unwrap().as_dict_mut().unwrap();
-                let contents_objects: Vec<Object> = new_contents[i]
-                    .iter()
-                    .map(|x| Object::Reference(*x))
-                    .collect();
-
-                mutable_page.set(*b"Contents", lopdf::Object::Array(contents_objects));
-
-                mutable_page.set("Annots", Object::Array(vec![]));
-            }
-            (vec![1], 1)
-        }
-
-        method::Method::Naive => {
-            println!("Using naive method");
-            let mut to_delete = Vec::new();
-
-            for page in &pages {
-                let page_type =
-                    page_type::PageType::get_page_type(&doc, page.1).unwrap_or_default();
-                let mutable_page = doc.get_object_mut(*page.1).unwrap().as_dict_mut().unwrap();
-
-                let mediabox = mutable_page.get(b"MediaBox").unwrap().as_array().unwrap();
-                let height_offset = match mediabox[1].as_f32() {
-                    Ok(h) => h,
-                    _ => mediabox[1].as_i64().unwrap() as f32,
-                };
-                let width_offset = match mediabox[0].as_f32() {
-                    Ok(h) => h,
-                    _ => mediabox[0].as_i64().unwrap() as f32,
-                };
-
-                let height = match mediabox[3].as_f32() {
-                    Ok(h) => h,
-                    _ => mediabox[3].as_i64().unwrap() as f32,
-                };
-                let width = match mediabox[2].as_f32() {
-                    Ok(h) => h,
-                    _ => mediabox[2].as_i64().unwrap() as f32,
-                };
-
-                match page_type {
-                    page_type::PageType::FullPageAds => to_delete.push(*page.0),
-                    page_type::PageType::Idk => to_delete.push(*page.0),
-                    page_type::PageType::BannerAds => {
-                        //1.141
-                        let scale = 1.124;
-                        for _box in ["MediaBox", "ArtBox", "TrimBox", "CropBox", "BleedBox"] {
-                            mutable_page.set(
-                                _box,
-                                Object::Array(vec![
-                                    Object::Real(
-                                        0.164 * (width - width_offset) + width_offset * scale,
-                                    ),
-                                    Object::Real(
-                                        0.031 * (height - height_offset) + height_offset * scale,
-                                    ),
-                                    Object::Real(
-                                        0.978 * (width - width_offset) * scale
-                                            + width_offset * scale,
-                                    ),
-                                    Object::Real(
-                                        0.865 * (height - height_offset) * scale
-                                            + height_offset * scale,
-                                    ),
-                                ]),
-                            );
-                        }
-
-                        let mut contents = doc.get_page_content(*page.1).unwrap();
-                        let mut new_contents = Vec::new();
-                        let c_prepend = "q\n1.124 0 0 1.124 0 0 cm\n".as_bytes();
-                        let c_append = "Q".as_bytes();
-
-                        new_contents.extend_from_slice(c_prepend);
-                        new_contents.append(&mut contents);
-                        new_contents.extend_from_slice(c_append);
-
-                        doc.change_page_content(*page.1, new_contents).unwrap()
-                    }
-                    page_type::PageType::Watermark => {
-                        for _box in ["MediaBox", "ArtBox", "TrimBox", "CropBox", "BleedBox"] {
-                            mutable_page.set(
-                                _box,
-                                Object::Array(vec![
-                                    Object::Real(0.015 * (width - width_offset) + width_offset),
-                                    Object::Real(0.05 * (height - height_offset) + height_offset),
-                                    Object::Real(0.95 * (width - width_offset) + width_offset),
-                                    Object::Real(0.98 * (height - height_offset) + height_offset),
-                                ]),
-                            );
-                        }
-                    }
-                }
-            }
-
-            for page in &pages {
-                // remove the logo
-                let _ = remove_logo(&mut doc, page.1);
-
-                // remove the annotations
-                let mutable_page = doc.get_object_mut(*page.1).unwrap().as_dict_mut().unwrap();
-                mutable_page.set("Annots", Object::Array(vec![]));
-            }
-
-            (to_delete, 2)
-        }
-    };
+    let (to_delete, method_code) = match_method(&doc, force_naive).clean();
 
     //Delete the pages that we've marked for deletion.
     for (offset, page) in to_delete.into_iter().enumerate() {
@@ -225,7 +45,7 @@ pub fn clean_pdf(data: Vec<u8>, force_naive: bool) -> (Vec<u8>, u8) {
     //doc.save_to("test.pdf").unwrap();
 }
 
-fn find_iobj_pairs(first_page: &[(u32, u16)], second_page: &[(u32, u16)]) -> (usize, usize) {
+pub fn find_iobj_pairs(first_page: &[(u32, u16)], second_page: &[(u32, u16)]) -> (usize, usize) {
     let unique_first_page: HashSet<&(u32, u16)> = first_page.iter().collect();
     let unique_second_page: HashSet<&(u32, u16)> = second_page.iter().collect();
 
@@ -258,7 +78,7 @@ pub fn get_xobjs<'a>(doc: &'a Document, page: &ObjectId) -> Result<&'a Dictionar
     Ok(xobjs)
 }
 
-fn get_objdict<'a>(
+pub fn get_objdict<'a>(
     doc: &'a Document,
     obj: (&Vec<u8>, &Object),
 ) -> Result<&'a Dictionary, Box<dyn Error>> {
@@ -290,7 +110,7 @@ pub fn get_images(doc: &Document, xobjs: &Dictionary) -> Result<Vec<(i64, i64)>,
     Ok(images)
 }
 
-fn remove_logo(doc: &mut Document, page: &ObjectId) -> Result<(), Box<dyn Error>> {
+pub fn remove_logo(doc: &mut Document, page: &ObjectId) -> Result<(), Box<dyn Error>> {
     let xobjs = get_xobjs(doc, page)?.clone();
     let images = get_images(doc, &xobjs)?;
 
@@ -327,12 +147,9 @@ fn remove_logo(doc: &mut Document, page: &ObjectId) -> Result<(), Box<dyn Error>
     Ok(())
 }
 
-pub trait Cleaner {
-    fn clean(&self) -> (Vec<u32>, u8);
-}
-
 /// Creates a new `Method` instance based on the provided `Document` and `force_naive` flag.
 ///
+/// **Disclamer:** We are cloning the reference so it's not a big performance loss
 /// # Arguments
 ///
 /// * `doc` - A reference to the `Document` object.
@@ -345,7 +162,7 @@ pub trait Cleaner {
 fn match_method(doc: &Document, force_naive: bool) -> Method {
     //0 for auto, 1 for wuolah, 2 for studocu 3 for wuolah naive
     if force_naive {
-        return Method::Naive;
+        return Method::Naive(doc.clone());
     }
 
     let pages = doc.get_pages();
@@ -377,7 +194,7 @@ fn match_method(doc: &Document, force_naive: bool) -> Method {
         .len()
         > 1
     {
-        return Method::StuDocu(content_list);
+        return Method::StuDocu(doc.clone(), content_list);
     }
 
     if content_list.len() > 1
@@ -389,7 +206,7 @@ fn match_method(doc: &Document, force_naive: bool) -> Method {
             .len()
             > 1
     {
-        return Method::Wuolah(content_list, to_delete);
+        return Method::Wuolah(doc.clone(), content_list, to_delete);
     }
-    Method::Naive
+    Method::Naive(doc.clone())
 }
