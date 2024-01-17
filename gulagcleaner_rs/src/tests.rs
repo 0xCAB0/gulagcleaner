@@ -14,8 +14,8 @@ fn compare(cleaned: &[u8], original: &[u8]) {
     //Checks that the clean pdf is smaller than the original
     assert!(cleaned.len() <= original.len());
 
-    let cleaned_pdf = Document::load_mem(&cleaned).unwrap();
-    let original_pdf = Document::load_mem(&original).unwrap();
+    let cleaned_pdf = Document::load_mem(cleaned).unwrap();
+    let original_pdf = Document::load_mem(original).unwrap();
 
     let original_pages = original_pdf.get_pages();
     let cleaned_pages = cleaned_pdf.get_pages();
