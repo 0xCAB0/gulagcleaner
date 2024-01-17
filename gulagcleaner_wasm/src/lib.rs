@@ -1,4 +1,3 @@
-use gulagcleaner_rs;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
@@ -17,5 +16,5 @@ pub fn clean_pdf(data: Vec<u8>, force_naive: bool) -> Vec<u8> {
     //     method: method_code,
     // };
     // Ok(serde_wasm_bindgen::to_value(&example)?)
-    return clean_pdf;
+    clean_pdf
 }
