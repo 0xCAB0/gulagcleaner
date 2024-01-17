@@ -20,12 +20,12 @@ pub trait Cleaner {
 /// A tuple containing the cleaned PDF document data as a vector of bytes and a method code.
 ///
 /// The method code indicates the cleaning method used: 0 for "Wuolah", 1 for "StuDocu", and 2 for "Naive".
-pub fn clean_pdf(data: Vec<u8>, force_naive: bool) -> (Vec<u8>, u8) {
+pub fn clean_pdf(data: &Vec<u8>, force_naive: bool) -> (Vec<u8>, u8) {
     //WARNING: FOR THIS RELASE (0.12.0) THE WUOLAH METHOD IS BROKEN.
     //I´m working on fixing it, but for now it will be disabled.
 
     //Load the PDF into a Document
-    let mut doc = Document::load_mem(&data).unwrap();
+    let mut doc = Document::load_mem(data).unwrap();
 
     //We first need to determine what method we're using, either "Wuolah", "StuDocu" or "Wuolah naive".
     // We keep it like this to allow for future methods if needed.
